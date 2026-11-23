@@ -1,0 +1,34 @@
+plugins { id 'com.android.application' }
+
+android {
+    namespace 'app.nightandmorning.sleep'
+    compileSdk 35
+    defaultConfig {
+        applicationId 'app.nightandmorning.sleep'
+        minSdk 28
+        targetSdk 35
+        versionCode 1
+        versionName '1.0'
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    sourceSets.main.assets.srcDir(layout.buildDirectory.dir('generated/sleepWeb'))
+}
+
+dependencies { implementation 'androidx.webkit:webkit:1.12.1' }
+
+def webRoot = rootProject.projectDir.parentFile
+tasks.register('bundleWeb', Exec) {
+    workingDir webRoot
+    commandLine(org.gradle.internal.os.OperatingSystem.current().isWindows() ? 'npm.cmd' : 'npm', 'run', 'build')
+    inputs.files(fileTree(webRoot) { include 'src/**', 'public/**', 'index.html', 'package*.json', 'tsconfig*.json', 'vite.config.ts', 'worker/**' })
+    outputs.dir(new File(webRoot, 'dist'))
+}
+tasks.register('copyWeb', Sync) {
+    dependsOn 'bundleWeb'
+    from new File(webRoot, 'dist')
+    into layout.buildDirectory.dir('generated/sleepWeb/site')
+}
+tasks.named('preBuild') { dependsOn 'copyWeb' }

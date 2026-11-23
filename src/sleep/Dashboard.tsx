@@ -1,0 +1,24 @@
+import { useState } from 'react';
+import { CalendarDays, ChartNoAxesColumnIncreasing, Moon, Sun, Clock3 } from 'lucide-react';
+import { clock, cyclicDelta, daysBetween, meanClock, metrics, minutes, moveDay, prettyDuration, type Night } from './model';
+
+export default function Dashboard({nights,end,edit}:{nights:Record<string,Night>;end:string;edit:(day:string)=>void}) {
+ const [range,set]=useState<'7'|'30'|'custom'>('7');
+ const [start,setStart]=useState(moveDay(end,-6)); const [last,setLast]=useState(end);
+ const days=range==='custom'?daysBetween(start,last):daysBetween(moveDay(end,1-Number(range)),end);
+ const records=days.flatMap(d=>nights[d]?[nights[d]]:[]);
+ const beds=records.flatMap(r=>r.bed===undefined?[]:[r.bed]); const wakes=records.flatMap(r=>r.wake===undefined?[]:[r.wake]);
+ const gaps=records.flatMap(r=>{const g=metrics(r).gap;return g===undefined?[]:[g];});
+ function difference(r:Night,k:'bed'|'wake') {if(r[k]===undefined||!r.goals[k])return '—';const m=cyclicDelta(minutes(clock(r[k])),minutes(r.goals[k]));return m===0?'일치':`${Math.abs(m)}분 ${m<0?'빠름':'늦음'}`;}
+ function achievement(k:'bed'|'wake') { const ds=records.flatMap(r=>r[k]===undefined||!r.goals[k]?[]:[Math.abs(cyclicDelta(minutes(clock(r[k])),minutes(r.goals[k])))<=r.goals.tolerance]); return `${ds.length?`${Math.round(ds.filter(Boolean).length/ds.length*100)}%`:'—'} (${ds.length}일)`; }
+ const stats=[{label:'평균 잠을 청한 시각',value:meanClock(beds),note:`유효 기록 ${beds.length}일`,icon:Moon},{label:'평균 기상 시각',value:meanClock(wakes),note:`유효 기록 ${wakes.length}일`,icon:Sun},{label:'평균 입면~기상 간격',value:prettyDuration(gaps.length?gaps.reduce((a,b)=>a+b,0)/gaps.length:undefined),note:`유효 기록 ${gaps.length}일`,icon:Clock3},{label:'시각 목표 달성률',value:`취침 ${achievement('bed')}`,note:`기상 ${achievement('wake')} · 괄호는 유효 기록 일수`,icon:ChartNoAxesColumnIncreasing}];
+ return <div className="stack"><div className="page-title"><h1>수면 대시보드</h1><p>하루하루의 기록으로 나만의 수면 흐름을 살펴봐요.</p></div>
+ <section className="paper panel"><h2><CalendarDays size={20}/> 조회 범위</h2><div className="button-group">{(['7','30','custom'] as const).map((v,i)=><button key={v} className="chip" aria-pressed={range===v} onClick={()=>set(v)}>{['최근 7일','최근 30일','직접 선택'][i]}</button>)}</div>{range==='custom'&&<div className="fields"><label>시작 날짜<input type="date" value={start} onChange={e=>setStart(e.target.value)}/></label><label>종료 날짜<input type="date" value={last} onChange={e=>setLast(e.target.value)}/></label>{(days.length===0||days.at(-1)!==last)&&<p role="alert">유효한 날짜를 최대 366일 범위로 선택해 주세요.</p>}</div>}<p>{days.length?`${days[0]} ~ ${days.at(-1)} · 밤 날짜 기준`:'조회할 날짜를 선택해 주세요.'}</p></section>
+ <div className="stats-grid">{stats.map(({label,value,note,icon:Icon})=><section className="paper stat" key={label}><Icon size={19}/><span>{label}</span><strong>{value}</strong><small>{note}</small></section>)}</div>
+ <section className="paper panel dashboard-log"><h2>날짜별 수면 타임라인</h2><p>입면~기상 간격은 중간에 깨어 있던 시간을 빼지 않은 값이에요. 실제 수면시간이나 수면시간 목표 달성률이 아니에요.</p>
+ {days.map(d=>{const r=nights[d];const m=metrics(r);const ready=[r?.bed,m.onset,r?.wake];const coords=ready.map(t=>t===undefined?undefined:(t-new Date(`${d}T12:00`).getTime())/3_600_000);const plotted=coords.filter((v):v is number=>v!==undefined);const min=Math.min(6,...plotted),max=Math.max(27,...plotted);const pos=(v:number)=>6+88*(v-min)/(max-min);
+ return <article className="dash-row" key={d}><div className="dash-date"><b>{d}</b><button className="text-button" onClick={()=>edit(d)}>{r?'기록 열기':'기록 입력'}</button></div>{!r||!plotted.length?<p>기록 없음</p>:<><div className="time-track" aria-hidden="true">{plotted.length>1&&<i style={{left:`${pos(Math.min(...plotted))}%`,width:`${pos(Math.max(...plotted))-pos(Math.min(...plotted))}%`}}/>}{coords.map((v,i)=>v!==undefined&&<span className={`point point-${i}`} key={i} style={{left:`${pos(v)}%`}}/>)}</div><div className="time-labels"><span>잠을 청한 시각 <b>{clock(r.bed)}</b></span><span>추정 입면 <b>{clock(m.onset)}</b></span><span>기상 <b>{clock(r.wake)}</b></span><span>입면~기상 간격 <b>{prettyDuration(m.gap)}</b></span></div></>}
+ {r&&<><p className="signal">목표와의 차이: 취침 {difference(r,'bed')} · 기상 {difference(r,'wake')}</p><p className="signal">휴대폰 신호: {r.usage==='yes'?'사용 감지':r.usage==='no'?'사용 감지 안 됨':'미수집'}</p></>}</article>;})}<p className="signal">휴대폰 사용 신호로 입면이나 각성을 판단하지 않아요.</p></section>
+ <section className="paper panel"><h2>전반적 수면 만족도</h2><p>수면 후 15번 문항만 표시해요. 하루의 차이만으로 시도한 행동의 효과를 판단하지 않아요.</p><div className="score-list">{days.map(d=>{const r=nights[d];const score=r?.after.answers[14];return <div className="score-row" key={d}><span>{d.slice(5)}</span><div className="score-track" aria-hidden="true">{typeof score==='number'&&<i style={{width:`${score*25}%`}}/>}</div><b>{typeof score==='number'?`${score}점`:score==='unknown'?'모르겠음':score==='na'?'해당 없음':'—'}</b><div className="tags">{r?.tags.map(tag=><span key={tag}>{tag}</span>)}</div></div>;})}</div></section>
+ </div>;
+}
